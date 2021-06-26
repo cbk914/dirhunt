@@ -4,9 +4,9 @@
 |
 
 
-.. image:: https://img.shields.io/travis/Nekmo/dirhunt.svg?style=flat-square&maxAge=2592000
-  :target: https://travis-ci.org/Nekmo/dirhunt
-  :alt: Latest Travis CI build status
+.. image:: https://img.shields.io/github/workflow/status/Nekmo/dirhunt/Tests.svg?style=flat-square&maxAge=2592000
+  :target: https://github.com/Nekmo/dirhunt/actions?query=workflow%3ATests
+  :alt: Latest Tests CI build status
 
 .. image:: https://img.shields.io/pypi/v/dirhunt.svg?style=flat-square
   :target: https://pypi.org/project/dirhunt/
@@ -27,9 +27,6 @@
 .. image:: https://img.shields.io/requires/github/Nekmo/dirhunt.svg?style=flat-square
      :target: https://requires.io/github/Nekmo/dirhunt/requirements/?branch=master
      :alt: Requirements Status
-
-**DEVELOPMENT BRANCH**: The current branch is a development version. Go to the stable release by clicking
-on `the master branch <https://github.com/Nekmo/dirhunt/tree/master>`_.
 
 
 Dirhunt

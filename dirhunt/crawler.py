@@ -33,7 +33,8 @@ class Crawler(ThreadPoolExecutor):
 
     def __init__(self, max_workers=None, interesting_extensions=None, interesting_files=None, std=None,
                  progress_enabled=True, timeout=10, depth=3, not_follow_subdomains=False, exclude_sources=(),
-                 not_allow_redirects=False, proxies=None, delay=0, limit=1000, to_file=None):
+                 not_allow_redirects=False, proxies=None, delay=0, limit=1000, to_file=None, user_agent=None,
+                 cookies=None, headers=None):
         if not max_workers and not delay:
             max_workers = (multiprocessing.cpu_count() or 1) * 5
         elif not max_workers and delay:
@@ -44,7 +45,7 @@ class Crawler(ThreadPoolExecutor):
         self.index_of_processors = []
         self.proxies = proxies
         self.delay = delay
-        self.sessions = Sessions(proxies, delay)
+        self.sessions = Sessions(proxies, delay, user_agent, cookies, headers)
         self.processing = {}
         self.processed = {}
         self.add_lock = Lock()
@@ -227,7 +228,8 @@ class Crawler(ThreadPoolExecutor):
         if not os.path.exists(directory):
             os.makedirs(directory)
         data = self.json()
-        json.dump(data, open(to_file, 'w'), cls=JsonReportEncoder, indent=4, sort_keys=True)
+        with open(to_file, 'w') as f:
+            json.dump(data, f, cls=JsonReportEncoder, indent=4, sort_keys=True)
 
     def resume(self, path):
         resume_data = json.load(open(path))
