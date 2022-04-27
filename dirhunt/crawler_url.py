@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import cgi
 import socket
 
 from bs4 import BeautifulSoup
@@ -49,31 +50,35 @@ class CrawlerUrl(object):
 
     def start(self):
         from dirhunt.processors import get_processor, GenericProcessor, Error, ProcessIndexOfRequest
-
+        if self.crawler.closing:
+            return self
         session = self.crawler.sessions.get_session()
         try:
-            resp = session.get(self.url.url, stream=True, verify=False, timeout=self.timeout, allow_redirects=False)
+            with session.get(self.url.url, stream=True, verify=False, timeout=self.timeout,
+                             allow_redirects=False) as resp:
+                self.set_type(resp.headers.get('Content-Type'))
+                self.flags.add(str(resp.status_code))
+                if self.crawler.closing:
+                    return self
+                text = ''
+                soup = None
+                processor = None
+                if resp.status_code < 300 and self.must_be_downloaded(resp):
+                    try:
+                        text = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
+                    except (RequestException, ReadTimeoutError, socket.timeout) as e:
+                        self.crawler.current_processed_count += 1
+                        self.crawler.results.put(Error(self, e))
+                        self.close()
+                        return self
+                    content_type = cgi.parse_header(resp.headers.get('Content-Type', ''))[0]
+                    soup = BeautifulSoup(text, 'html.parser') if content_type == 'text/html' else None
         except RequestException as e:
             self.crawler.current_processed_count += 1
             self.crawler.results.put(Error(self, e))
             self.close()
             return self
 
-        self.set_type(resp.headers.get('Content-Type'))
-        self.flags.add(str(resp.status_code))
-
-        text = ''
-        soup = None
-        processor = None
-        if resp.status_code < 300 and self.must_be_downloaded(resp):
-            try:
-                text = resp.raw.read(MAX_RESPONSE_SIZE, decode_content=True)
-            except (RequestException, ReadTimeoutError, socket.timeout) as e:
-                self.crawler.current_processed_count += 1
-                self.crawler.results.put(Error(self, e))
-                self.close()
-                return self
-            soup = BeautifulSoup(text, 'html.parser') if resp.headers.get('Content-Type') == 'text/html' else None
         if self.must_be_downloaded(resp):
             processor = get_processor(resp, text, self, soup) or GenericProcessor(resp, self)
             processor.process(text, soup)
@@ -107,7 +112,7 @@ class CrawlerUrl(object):
     def must_be_downloaded(self, response):
         """The file must be downloaded to obtain information.
         """
-        return self.maybe_directory() or (response.headers.get('Content-Type') in [
+        return self.maybe_directory() or (cgi.parse_header(response.headers.get('Content-Type', ''))[0] in [
             'text/css', 'application/javascript'
         ])
 

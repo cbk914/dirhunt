@@ -1,20 +1,31 @@
+import ssl
 import sys
 import unittest
 
 import requests_mock
 
 from dirhunt._compat import URLError
-from dirhunt.sources import Robots, VirusTotal, Google
+from dirhunt.sources import Robots, VirusTotal, Google, CommonCrawl, CertificateSSL
+from dirhunt.sources.commoncrawl import COMMONCRAWL_URL
 from dirhunt.sources.google import STOP_AFTER
 from dirhunt.sources.robots import DirhuntRobotFileParser
 from dirhunt.sources.virustotal import VT_URL, ABUSE
-from dirhunt.tests._compat import patch, call
+from dirhunt.tests._compat import patch, call, urlencode
 
 ROBOTS = """
 User-agent: *
 Disallow: /secret/
 """
 ABUSE_DIV = '<div class="enum"><a>{url}</a></div>'
+COMMONCRAWL_INDEXES = [
+  {
+    "id": "CC-MAIN-2021-49",
+    "name": "November 2021 Index",
+    "timegate": "https://index.commoncrawl.org/CC-MAIN-2021-49/",
+    "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2021-49-index"
+  },
+]
+COMMONCRAWL_RESULT = {'url': 'https://foo.com/bar/'}
 
 
 class TestRobots(unittest.TestCase):
@@ -103,3 +114,63 @@ class TestGoogle(unittest.TestCase):
         with patch('dirhunt.sources.google.search', return_value=map(search_iter, [0])):
             Google(lambda x: x, lambda x: x).callback('domain')
         m1.assert_called_once()
+
+
+class TestCommonCrawl(unittest.TestCase):
+    @requests_mock.Mocker()
+    def test_get_latest_craw_index(self, m):
+        m.get(COMMONCRAWL_URL, json=COMMONCRAWL_INDEXES)
+        common_crawl = CommonCrawl(lambda x: x, None)
+        self.assertEqual(common_crawl.get_latest_craw_index(), COMMONCRAWL_INDEXES[0]['cdx-api'])
+
+    @requests_mock.Mocker()
+    def test_get_latest_craw_index_error(self, m):
+        m.get(COMMONCRAWL_URL, status_code=403)
+        common_crawl = CommonCrawl(lambda x: x, None)
+        self.assertEqual(common_crawl.get_latest_craw_index(), None)
+
+    @requests_mock.Mocker()
+    def test_get_latest_craw_index_empty(self, m):
+        m.get(COMMONCRAWL_URL, json=[])
+        common_crawl = CommonCrawl(lambda x: x, None)
+        self.assertEqual(common_crawl.get_latest_craw_index(), None)
+
+    @requests_mock.Mocker()
+    @patch.object(CommonCrawl, 'add_result')
+    def test_get_latest_craw_index_empty(self, m1, m2):
+        m1.get(COMMONCRAWL_URL, json=COMMONCRAWL_INDEXES)
+        url = '{}?{}'.format(
+            COMMONCRAWL_INDEXES[0]['cdx-api'],
+            urlencode({'url': '*.domain', 'output': 'json'})
+        )
+        m1.get(url, json=COMMONCRAWL_RESULT)
+        common_crawl = CommonCrawl(lambda x: x, None)
+        common_crawl.callback('domain')
+
+        m2.assert_has_calls([call(COMMONCRAWL_RESULT['url'])])
+
+
+class TestCertificateSSL(unittest.TestCase):
+    @patch('dirhunt.sources.ssl.ssl')
+    def test_callback(self, m):
+        domain = 'foo.com'
+        subdomain = 'sub.foo.com'
+        with patch.object(CertificateSSL, 'add_result') as mock_add_result:
+            m.create_default_context.return_value.wrap_socket.return_value\
+                .__enter__.return_value.getpeercert.return_value = {'subjectAltName': (('DNS', subdomain),)}
+            certificate_ssl = CertificateSSL(lambda x: x, None)
+            certificate_ssl.callback(domain)
+            mock_add_result.assert_called_once_with('https://{}/'.format(subdomain))
+
+    @patch('dirhunt.sources.ssl.ssl.create_default_context', **{
+        'return_value.wrap_socket.side_effect': ssl.SSLError
+    })
+    def test_certificate_error(self, m):
+        subdomain = 'sub.foo.com'
+        with patch.object(CertificateSSL, 'add_result') as mock_add_result:
+            m.create_default_context.return_value.wrap_socket.return_value\
+                .__enter__.return_value.getpeercert.return_value = {'subjectAltName': (('DNS', subdomain),)}
+            certificate_ssl = CertificateSSL(lambda x: x, None)
+            certificate_ssl.callback('foo.com')
+            mock_add_result.assert_not_called()
+
